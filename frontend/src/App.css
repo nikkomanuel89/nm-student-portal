@@ -1,0 +1,7 @@
+.app { text-align: center; background: #667eea; color: white; padding: 20px; }
+nav { margin: 20px 0; }
+button { margin: 0 10px; padding: 10px 20px; background: #4facfe; color: white; border: none; border-radius: 20px; cursor: pointer; }
+button:hover { background: #00c9ff; }
+table { background: white; color: black; margin: 20px auto; border-collapse: collapse; }
+th, td { padding: 10px; border: 1px solid #ddd; }
+footer { margin-top: 50px; font-size: 1.2em; }
