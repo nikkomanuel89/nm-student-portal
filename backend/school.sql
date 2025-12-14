@@ -58,15 +58,7 @@ CREATE TABLE announcements (
 
 -- Sample Data
 INSERT INTO users (name, email, role, passwordHash) VALUES
-('Nikko Manuel', 'nm@sportal.com', 'student', 'hashed_password'),
-('Marlon Chipa', 'mc@sportal.com', 'instructor', 'hashed_password'),
 ('Admin', 'admin@sportal.com', 'admin', 'hashed_password');
-
-INSERT INTO courses (title, description, instructorId, syllabus) VALUES
-('CPS*5500', 'Full Stack Development', 2, 'Syllabus: Week 1 - Intro, Week 2 - React...');
-
-INSERT INTO announcements (courseId, title, message) VALUES
-(1, 'Welcome', 'Welcome to the course!');
 
 -- Add student to course
 UPDATE courses SET students = '[1]' WHERE id = 1;

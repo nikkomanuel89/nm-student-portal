@@ -26,6 +26,7 @@ function App() {
   const [deleteBase, setDeleteBase] = useState('');
   const [allUsers, setAllUsers] = useState([]);
   const [showChat, setShowChat] = useState(false);
+  const [showSESMag, setShowSESMag] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { sender: 'bot', text: "Hello! I'm your Student Portal assistant. Ask me anything about how to use the portal!" }
   ]);
@@ -36,7 +37,7 @@ function App() {
   const API = 'http://localhost:5000/api';
 
   const getEndpoint = (pageName) => {
-    if (pageName === 'students') return user?.role === 'instructor' ? `courses?instructorid=${user.id}` : 'courses';
+    if (pageName === 'students') return user?.role === 'instructor' ? `courses?instructorid=${user.id}` : (user?.role === 'admin' ? 'users?role=student' : 'courses');
     if (pageName === 'courses') return 'courses';
     if (pageName === 'assignments') return 'assignments';
     if (pageName === 'announcements') return 'announcements';
@@ -49,6 +50,7 @@ function App() {
     if (pageName === 'assignments') return { title: '', duedate: '', description: '', courseid: '' };
     if (pageName === 'announcements') return { title: '', message: '', courseid: '' };
     if (pageName === 'instructors') return { name: '', email: '', courseTitle: '', courseDescription: '', courseSyllabus: '' };
+    if (pageName === 'students') return { name: '', email: '' };
     return {};
   };
 
@@ -78,16 +80,16 @@ function App() {
     setShowGradeModal(false);
     setAllUsers([]);
     setShowChat(false);
+    setShowSESMag(false);
     setChatMessages([{ sender: 'bot', text: "Hello! I'm your Student Portal assistant. Ask me anything about how to use the portal!" }]);
   };
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [coursesRes, assignmentsRes, announcementsRes, usersRes] = await Promise.all([
+      const [coursesRes, assignmentsRes, usersRes] = await Promise.all([
         axios.get(`${API}/courses`),
         axios.get(`${API}/assignments`),
-        axios.get(`${API}/announcements`),
         axios.get(`${API}/users`)
       ]);
       setCourses(coursesRes.data);
@@ -108,7 +110,14 @@ function App() {
       }
       let fetched = (await axios.get(`${API}/${endpoint}`)).data;
       if (page === 'announcements') {
-        fetched = announcementsRes.data;
+        if (user?.role === 'student') {
+          fetched = fetched.filter(a => enrolled.includes(a.courseid));
+        } else if (user?.role === 'instructor') {
+          const instructorCourseIds = coursesRes.data
+            .filter(c => c.instructorid === user.id)
+            .map(c => c.id);
+          fetched = fetched.filter(a => instructorCourseIds.includes(a.courseid));
+        }
       }
       if (page === 'students' && user?.role === 'instructor') {
         const instructorCourses = coursesRes.data.filter(c => c.instructorid === user.id);
@@ -155,16 +164,7 @@ function App() {
           setData(fetched);
         }
       } else if (page === 'announcements') {
-        if (user?.role === 'student') {
-          setData(fetched.filter(a => enrolled.includes(a.courseid)));
-        } else if (user?.role === 'instructor') {
-          const instructorCourseIds = coursesRes.data
-            .filter(c => c.instructorid === user.id)
-            .map(c => c.id);
-          setData(fetched.filter(a => instructorCourseIds.includes(a.courseid)));
-        } else {
-          setData(fetched);
-        }
+        setData(fetched);
       } else if (page === 'submissions') {
         if (user?.role === 'instructor') {
           const instructorCourseIds = coursesRes.data
@@ -200,10 +200,13 @@ function App() {
   const handleCreateOrUpdate = async (e) => {
     if (e) e.preventDefault();
     try {
-      let base = page === 'instructors' ? 'users' : page;
+      let base = (page === 'instructors' || page === 'students') ? 'users' : page;
       let payload = { ...formData };
       if (page === 'instructors' && !editingItem) {
         payload.role = 'instructor';
+      }
+      if (page === 'students' && !editingItem) {
+        payload.role = 'student';
       }
       let res;
       if (editingItem) {
@@ -241,8 +244,26 @@ function App() {
   const handleDelete = async () => {
     try {
       let base = deleteBase || page;
-      if (page === 'instructors') base = 'users';
+      if (page === 'instructors' || page === 'students') base = 'users';
       const id = itemToDelete.id || itemToDelete;
+      if (page === 'instructors') {
+        const coursesRes = await axios.get(`${API}/courses?instructorid=${id}`);
+        for (const course of coursesRes.data) {
+          const assignmentsRes = await axios.get(`${API}/assignments?courseid=${course.id}`);
+          for (const assignment of assignmentsRes.data) {
+            const submissionsRes = await axios.get(`${API}/submissions?assignmentid=${assignment.id}`);
+            for (const submission of submissionsRes.data) {
+              await axios.delete(`${API}/submissions/${submission.id}`);
+            }
+            await axios.delete(`${API}/assignments/${assignment.id}`);
+          }
+          const announcementsRes = await axios.get(`${API}/announcements?courseid=${course.id}`);
+          for (const announcement of announcementsRes.data) {
+            await axios.delete(`${API}/announcements/${announcement.id}`);
+          }
+          await axios.delete(`${API}/courses/${course.id}`);
+        }
+      }
       await axios.delete(`${API}/${base}/${id}`);
       setShowConfirmDelete(false);
       setItemToDelete(null);
@@ -347,6 +368,9 @@ function App() {
                 <button onClick={() => setShowChat(prev => !prev)} style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
                   {showChat ? 'Hide Assistant' : 'AI Assistant'}
                 </button>
+                <button onClick={() => setShowSESMag(true)} style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
+                  SESMag
+                </button>
                 <button onClick={logout} style={{ padding: '10px 20px', background: '#e53e3e', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>Logout</button>
               </div>
             </div>
@@ -395,6 +419,23 @@ function App() {
                 <button onClick={sendChatMessage} disabled={chatLoading} style={{ marginLeft: '8px', padding: '10px 16px', background: '#667eea', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer' }}>
                   Send
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* SESMag Modal */}
+          {showSESMag && (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+              <div style={{ background: 'white', padding: '30px', borderRadius: '12px', maxWidth: '600px', width: '90%', overflow: 'hidden' }}>
+                <h2 style={{ margin: '0 0 20px', textAlign: 'center' }}>Socio-Economic Magnifier</h2>
+                <p>SESMag a usability inspection method created to identify socioeconomic inclusivity issues in software design. It focuses on uncovering “SES-inclusivity bugs,” which are features that may unintentionally disadvantage users from lower socioeconomic backgrounds. The method uses research-based facets and personas such as Dav, Ash, and Fee to represent different patterns of technology access, experience, and problem-solving styles. By evaluating software through these personas, developers and designers can better understand how certain design choices may exclude or frustrate specific user groups. Overall, SESMag encourages more equitable software design by highlighting problems that traditional usability testing might overlook.</p>
+                <br />
+                <p>This part of the assignment was moderately challenging but manageable. Understanding how to apply the personas and facets required careful thought and reflection, especially when analyzing software from perspectives different from my own. However, once I became familiar with the process, it was easier to see how effective SESMag can be in revealing hidden design flaws. The assignment was valuable in showing how socioeconomic factors influence user experience. If I were to change anything, I would include more structured examples or step by step walk-throughs before the main task, which would help students apply the SESMag framework more confidently and efficiently</p>
+                <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                  <button onClick={() => setShowSESMag(false)} style={{ padding: '10px 20px', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -705,11 +746,36 @@ function App() {
                 </table>
               )}
 
+              {/* Students (Admin) */}
+              {page === 'students' && user.role === 'admin' && data.length > 0 && (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f7fafc' }}>
+                      <th style={{ padding: '16px', textAlign: 'left' }}>Name</th>
+                      <th style={{ padding: '16px', textAlign: 'left' }}>Email</th>
+                      <th style={{ padding: '16px', textAlign: 'left' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.map(stu => (
+                      <tr key={stu.id}>
+                        <td style={{ padding: '16px' }}>{stu.name}</td>
+                        <td style={{ padding: '16px' }}>{stu.email}</td>
+                        <td style={{ padding: '16px' }}>
+                          <button onClick={() => editItem(stu)} style={{ marginRight: '8px', padding: '8px 16px', background: '#3182ce', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Edit</button>
+                          <button onClick={() => { setItemToDelete(stu.id); setDeleteBase('users'); setShowConfirmDelete(true); }} style={{ padding: '8px 16px', background: '#e53e3e', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
               {/* Edit Form Modal */}
               {showForm && (
                 <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
                   <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '90%', maxWidth: '600px' }}>
-                    <h3>{editingItem ? 'Edit' : 'Add'} {page === 'instructors' ? 'Instructor' : page.slice(0, -1)}</h3>
+                    <h3>{editingItem ? 'Edit' : 'Add'} {page === 'instructors' ? 'Instructor' : page === 'students' ? 'Student' : page.slice(0, -1)}</h3>
                     <form onSubmit={handleCreateOrUpdate}>
                       {(page === 'assignments' || page === 'announcements') && (
                         <select value={formData.courseid || ''} onChange={(e) => setFormData({ ...formData, courseid: e.target.value })} required style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd' }}>
@@ -730,6 +796,19 @@ function App() {
                         <>
                           <input type="text" placeholder="Title" value={formData.title || ''} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd' }} />
                           <textarea placeholder="Message" value={formData.message || ''} onChange={(e) => setFormData({ ...formData, message: e.target.value })} required style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd', minHeight: '150px' }} />
+                        </>
+                      )}
+                      {(page === 'instructors' || page === 'students') && (
+                        <>
+                          <input type="text" placeholder="Name" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd' }} />
+                          <input type="email" placeholder="Email" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd' }} />
+                        </>
+                      )}
+                      {page === 'instructors' && !editingItem && (
+                        <>
+                          <input type="text" placeholder="Course Title" value={formData.courseTitle || ''} onChange={(e) => setFormData({ ...formData, courseTitle: e.target.value })} required style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd' }} />
+                          <textarea placeholder="Course Description (optional)" value={formData.courseDescription || ''} onChange={(e) => setFormData({ ...formData, courseDescription: e.target.value })} style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd', minHeight: '100px' }} />
+                          <textarea placeholder="Course Syllabus (optional)" value={formData.courseSyllabus || ''} onChange={(e) => setFormData({ ...formData, courseSyllabus: e.target.value })} style={{ width: '100%', padding: '10px', margin: '10px 0', borderRadius: '6px', border: '1px solid #ddd', minHeight: '100px' }} />
                         </>
                       )}
                       <div style={{ marginTop: '20px' }}>
